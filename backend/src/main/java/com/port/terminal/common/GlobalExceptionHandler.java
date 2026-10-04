@@ -70,6 +70,17 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 箱位悲观锁竞争/死锁：409。占位事务已回滚，提示失败方刷新箱位矩阵后重试
+     * （正常在锁内复核时已带占用箱号返回；仅极端等锁超时/死锁牺牲走到这里）。
+     * 拦截父类 PessimisticLockingFailureException，同时覆盖等锁超时与死锁回滚。
+     */
+    @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleLock(org.springframework.dao.PessimisticLockingFailureException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail("目标箱位正被其他落箱/翻倒请求占用，本次操作已取消，请刷新箱位矩阵后重试"));
+    }
+
+    /**
      * 兜底：500
      */
     @ExceptionHandler(Exception.class)
