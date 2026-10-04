@@ -117,6 +117,12 @@ public class YardService {
         applyOccupancy(container, request, targets);
     }
 
+    /**
+     * 原子占位规则（首次落位与翻倒共用）：目标箱位逐行加悲观锁（SELECT ... FOR UPDATE），
+     * 锁持有到事务提交，"查空 → 写占用"之间没有并发窗口，单箱位竞争只有一个请求能成功。
+     * 40 尺箱按行号升序锁相邻两格，两格都锁到才允许写入；任一格被抢占即抛错回滚，
+     * 翻倒方不会释放旧位置，也不会留下半占用。
+     */
     private List<YardSlot> validateTargets(Container container, SlotActionRequest request, boolean flip) {
         YardZone zone = zoneRepository.findByZoneCode(request.yardZone())
                 .orElseThrow(() -> new BizException("箱区 " + request.yardZone() + " 不存在"));
@@ -134,7 +140,7 @@ public class YardService {
             throw new BizException("箱型 " + container.getType() + " 不符合 " + zone.getZoneCode() + " 区限制 " + limit);
         }
 
-        YardSlot first = exactSlot(request.yardZone(), request.bay(), request.row(), request.tier());
+        YardSlot first = lockedExactSlot(request.yardZone(), request.bay(), request.row(), request.tier());
         requireEmpty(first, flip);
         if (!Dict.isFortyFoot(container.getType())) return List.of(first);
 
@@ -142,9 +148,18 @@ public class YardService {
         if (adjacentRow > zone.getRowCount()) {
             throw new BizException("40 尺箱必须占用同一贝位内相邻两个 20 尺箱位");
         }
-        YardSlot second = exactSlot(request.yardZone(), request.bay(), adjacentRow, request.tier());
+        YardSlot second = lockedExactSlot(request.yardZone(), request.bay(), adjacentRow, request.tier());
         requireEmpty(second, flip);
         return List.of(first, second);
+    }
+
+    /**
+     * 加锁读取目标箱位：后到者在此阻塞到先到者提交，随后读到最新占用状态，
+     * 由 requireEmpty 抛出带占用箱号的冲突，失败方事务回滚、保留原位置。
+     */
+    private YardSlot lockedExactSlot(String zone, Integer bay, Integer row, Integer tier) {
+        return slotRepository.findExactSlotForUpdate(zone, bay, row, tier)
+                .orElseThrow(() -> new BizException("箱位 " + format(zone, bay, row, tier) + " 不存在"));
     }
 
     private void requireEmpty(YardSlot slot, boolean flip) {

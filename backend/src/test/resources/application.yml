@@ -1,0 +1,20 @@
+# 测试环境：H2 内存库代替 MySQL；schema 由 JPA 按实体生成，
+# 关闭 SQL 初始化避免执行 main/resources 下 MySQL 方言的 schema.sql。
+# LOCK_TIMEOUT 放宽到 10s，保证并发用例中后到者能等到先到者提交而不是超时。
+spring:
+  datasource:
+    url: jdbc:h2:mem:yard;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  sql:
+    init:
+      mode: never
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+
+logging:
+  level:
+    root: WARN

@@ -3,9 +3,11 @@ package com.port.terminal.repository;
 import com.port.terminal.domain.SlotKey;
 import com.port.terminal.domain.YardSlot;
 import com.port.terminal.dto.ZoneOccupancyDTO;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -23,6 +25,16 @@ public interface YardSlotRepository extends JpaRepository<YardSlot, SlotKey> {
     @Query("select s from YardSlot s where s.id.yardZone = :z and s.id.bay = :b and s.id.row = :r and s.id.tier = :t")
     Optional<YardSlot> findExactSlot(@Param("z") String yardZone, @Param("b") Integer bay,
                                      @Param("r") Integer row, @Param("t") Integer tier);
+
+    /**
+     * 悲观锁读取单个箱位（SELECT ... FOR UPDATE）：复合主键等值定位，只锁目标行本身，
+     * 锁持有到事务提交。首次落位与翻倒共用的原子占位入口——并发抢位时后到者在此阻塞，
+     * 待先到者提交后读到最新已提交的占用状态与占用箱号，不会再通过空位检查。
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from YardSlot s where s.id.yardZone = :z and s.id.bay = :b and s.id.row = :r and s.id.tier = :t")
+    Optional<YardSlot> findExactSlotForUpdate(@Param("z") String yardZone, @Param("b") Integer bay,
+                                              @Param("r") Integer row, @Param("t") Integer tier);
 
     @Query("""
             select new com.port.terminal.dto.ZoneOccupancyDTO(
